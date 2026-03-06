@@ -1,3 +1,8 @@
+// ================================================
+// SHARED TYPES — dùng chung cho cả 4 services
+// ================================================
+
+// Wrapper cho mọi API response
 export interface ApiResponse<T = null> {
   success: boolean;
   data: T | null;
@@ -13,11 +18,11 @@ export interface PaginationMeta {
   totalPages: number;
 }
 
-// jti dùng để blacklist token trong Redis khi logout
+// JWT payload — jti dùng làm Redis blacklist key khi logout
 export interface JwtPayload {
-  sub: string;
+  sub: string;              // userId
   role: 'USER' | 'ADMIN';
-  jti: string;
+  jti: string;              // unique token ID
   iat: number;
   exp: number;
 }
@@ -30,11 +35,13 @@ export interface InternalApiHeaders {
   'content-type': 'application/json';
 }
 
+// Gắn vào req.user sau khi verify token
 export interface AuthUser {
   id: string;
   role: 'USER' | 'ADMIN';
 }
 
+// Custom error — errorHandler middleware đọc statusCode
 export class ServiceError extends Error {
   constructor(
     public statusCode: number,
