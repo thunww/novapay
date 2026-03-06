@@ -1,3 +1,5 @@
+import { config } from 'dotenv'
+config()  // load .env trước khi parse
 import { z } from 'zod'
 
 const schema = z.object({
