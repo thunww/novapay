@@ -1,0 +1,87 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  # AUTH SERVICE
+  - name: auth-service
+    url: http://host.docker.internal:3001
+    routes:
+      - name: auth-routes
+        paths:
+          - /api/auth
+          - /api/me
+        strip_path: false
+
+  # ACCOUNT SERVICE
+  - name: account-service
+    url: http://host.docker.internal:3002
+    routes:
+      - name: account-routes
+        paths:
+          - /api/account
+          - /api/admin/users
+        strip_path: false
+
+  # TRANSACTION SERVICE
+  - name: transaction-service
+    url: http://host.docker.internal:3003
+    routes:
+      - name: transaction-routes
+        paths:
+          - /api/transactions
+          - /api/admin/transactions
+        strip_path: false
+      - name: transfer-route
+        paths:
+          - /api/transfer
+        strip_path: false
+
+  # NOTIFICATION SERVICE
+  - name: notification-service
+    url: http://host.docker.internal:3004
+    routes:
+      - name: notification-routes
+        paths:
+          - /api/notifications
+        strip_path: false
+
+plugins:
+  # CORS — cho phép frontend gọi API
+  - name: cors
+    config:
+      origins:
+        - "http://localhost"
+        - "http://localhost:5173"
+      methods:
+        - GET
+        - POST
+        - PATCH
+        - DELETE
+        - OPTIONS
+      headers:
+        - Authorization
+        - Content-Type
+      credentials: true
+      max_age: 3600
+
+  # Rate limit chung — 100 req/phút cho mọi endpoint
+  - name: rate-limiting
+    config:
+      minute: 100
+      policy: local
+
+  # Rate limit riêng cho transfer — 10 req/phút
+  - name: rate-limiting
+    route: transfer-route
+    config:
+      minute: 10
+      policy: local
+
+  # Log ra stdout để docker logs đọc được
+  - name: file-log
+    config:
+      path: /dev/stdout
+      reopen: true
+
+  # Prometheus metrics
+  - name: prometheus
