@@ -5,7 +5,7 @@ const schema = z.object({
   PORT:             z.string().default('3002').transform(Number),
   DATABASE_URL:     z.string().min(1),
   REDIS_URL:        z.string().min(1),
-  AUTH_SERVICE_URL: z.string().url(),
+  AUTH_SERVICE_URL: z.string().min(1),
   INTERNAL_SECRET:  z.string().min(1),
 })
 
