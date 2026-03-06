@@ -1,0 +1,125 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: novapay-postgres
+    environment:
+      POSTGRES_USER: novapay
+      POSTGRES_PASSWORD: novapay_secret
+      POSTGRES_DB: novapay
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-schemas.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U novapay"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: novapay-redis
+    command: redis-server --requirepass redis_secret
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_secret", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    container_name: novapay-auth
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://novapay:novapay_secret@postgres:5432/novapay?schema=auth
+      REDIS_URL: redis://:redis_secret@redis:6379
+      JWT_SECRET: novapay_super_secret_jwt_key_min_32_chars
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      INTERNAL_SECRET: novapay_internal_secret_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  account-service:
+    build:
+      context: .
+      dockerfile: services/account-service/Dockerfile
+    container_name: novapay-account
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      DATABASE_URL: postgresql://novapay:novapay_secret@postgres:5432/novapay?schema=account
+      REDIS_URL: redis://:redis_secret@redis:6379
+      AUTH_SERVICE_URL: http://auth-service:3001
+      INTERNAL_SECRET: novapay_internal_secret_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+
+  transaction-service:
+    build:
+      context: .
+      dockerfile: services/transaction-service/Dockerfile
+    container_name: novapay-transaction
+    environment:
+      NODE_ENV: production
+      PORT: 3003
+      DATABASE_URL: postgresql://novapay:novapay_secret@postgres:5432/novapay?schema=transaction
+      AUTH_SERVICE_URL: http://auth-service:3001
+      ACCOUNT_SERVICE_URL: http://account-service:3002
+      NOTIFICATION_SERVICE_URL: http://notification-service:3004
+      INTERNAL_SECRET: novapay_internal_secret_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+      account-service:
+        condition: service_started
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    container_name: novapay-notification
+    environment:
+      NODE_ENV: production
+      PORT: 3004
+      DATABASE_URL: postgresql://novapay:novapay_secret@postgres:5432/novapay?schema=notification
+      REDIS_URL: redis://:redis_secret@redis:6379
+      AUTH_SERVICE_URL: http://auth-service:3001
+      INTERNAL_SECRET: novapay_internal_secret_key
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      auth-service:
+        condition: service_started
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: novapay-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - auth-service
+      - account-service
+      - transaction-service
+      - notification-service
+
+volumes:
+  postgres_data:
