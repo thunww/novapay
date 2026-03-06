@@ -1,0 +1,23 @@
+{
+  "name": "novapay",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "services/*",
+    "frontend"
+  ],
+  "scripts": {
+    "lint:all": "npm run lint --workspaces --if-present",
+    "test:all": "npm run test --workspaces --if-present",
+    "typecheck:all": "npm run typecheck --workspaces --if-present",
+    "prepare": "husky"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^20.4.3",
+    "@commitlint/config-conventional": "^20.4.3",
+    "husky": "^9.1.7"
+  }
+}
