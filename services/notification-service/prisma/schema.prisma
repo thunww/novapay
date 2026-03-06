@@ -1,5 +1,6 @@
 generator client {
-  provider        = "prisma-client-js"
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
   previewFeatures = ["multiSchema"]
 }
 
@@ -20,3 +21,4 @@ model Notification {
   @@index([userId, isRead])
   @@schema("notification")
 }
+

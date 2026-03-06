@@ -1,0 +1,36 @@
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../src/generated/client"
+  previewFeatures = ["multiSchema"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  schemas  = ["transaction"]
+}
+
+model Transaction {
+  id            String            @id @default(uuid())
+  fromUserId    String
+  toUserId      String
+  fromAccountId String
+  toAccountId   String
+  amount        Decimal           @db.Decimal(18, 2)
+  description   String            @default("")
+  status        TransactionStatus @default(PENDING)
+  createdAt     DateTime          @default(now())
+
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([createdAt])
+  @@schema("transaction")
+}
+
+enum TransactionStatus {
+  PENDING
+  SUCCESS
+  FAILED
+
+  @@schema("transaction")
+}
