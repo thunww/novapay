@@ -121,5 +121,16 @@ services:
       - transaction-service
       - notification-service
 
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: novapay-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@novapay.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+
 volumes:
   postgres_data:
