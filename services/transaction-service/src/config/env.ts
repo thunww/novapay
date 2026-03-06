@@ -4,9 +4,9 @@ const schema = z.object({
   NODE_ENV:                  z.enum(['development', 'production', 'test']).default('development'),
   PORT:                      z.string().default('3003').transform(Number),
   DATABASE_URL:              z.string().min(1),
-  AUTH_SERVICE_URL:          z.string().url(),
-  ACCOUNT_SERVICE_URL:       z.string().url(),
-  NOTIFICATION_SERVICE_URL:  z.string().url(),
+  AUTH_SERVICE_URL:          z.string().min(1),
+  ACCOUNT_SERVICE_URL:       z.string().min(1),
+  NOTIFICATION_SERVICE_URL:  z.string().min(1),
   INTERNAL_SECRET:           z.string().min(1),
 })
 
