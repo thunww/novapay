@@ -11,14 +11,13 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/socket.io': {
-        target: 'http://localhost:3004',
-        ws: true,
-      }
+      '/api/auth': { target: 'http://localhost:3001', changeOrigin: true },
+      '/api/me': { target: 'http://localhost:3001', changeOrigin: true },
+      '/api/account': { target: 'http://localhost:3002', changeOrigin: true },
+      '/api/transfer': { target: 'http://localhost:3003', changeOrigin: true },
+      '/api/transactions': { target: 'http://localhost:3003', changeOrigin: true },
+      '/api/notifications': { target: 'http://localhost:3004', changeOrigin: true },
+      '/socket.io': { target: 'http://localhost:3004', ws: true, changeOrigin: true },
     }
   }
 })
