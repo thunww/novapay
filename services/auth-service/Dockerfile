@@ -12,4 +12,6 @@ COPY services/auth-service/tsconfig.json ./services/auth-service/
 WORKDIR /app/services/auth-service
 RUN npx prisma generate
 EXPOSE 3001
-CMD ["npx", "tsx", "src/index.ts"]
+COPY services/auth-service/entrypoint.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
+CMD ["sh", "entrypoint.sh"]

@@ -12,4 +12,6 @@ COPY services/transaction-service/tsconfig.json ./services/transaction-service/
 WORKDIR /app/services/transaction-service
 RUN npx prisma generate
 EXPOSE 3003
-CMD ["npx", "tsx", "src/index.ts"]
+COPY services/transaction-service/entrypoint.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
+CMD ["sh", "entrypoint.sh"]

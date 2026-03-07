@@ -12,4 +12,6 @@ COPY services/notification-service/tsconfig.json ./services/notification-service
 WORKDIR /app/services/notification-service
 RUN npx prisma generate
 EXPOSE 3004
-CMD ["npx", "tsx", "src/index.ts"]
+COPY services/notification-service/entrypoint.sh ./entrypoint.sh
+RUN chmod +x entrypoint.sh
+CMD ["sh", "entrypoint.sh"]
