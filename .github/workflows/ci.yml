@@ -2,112 +2,375 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
+    paths:
+      - 'services/**'
+      - 'frontend/**'
   pull_request:
     branches: [main]
+    paths:
+      - 'services/**'
+      - 'frontend/**'
+  workflow_dispatch:
+    inputs:
+      services:
+        description: 'Services to build'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - auth-service
+          - account-service
+          - transaction-service
+          - notification-service
+          - frontend
+      skip_typecheck:
+        description: 'Skip typecheck (hotfix)'
+        required: false
+        default: false
+        type: boolean
+      force_push:
+        description: 'Force push (non-main branch)'
+        required: false
+        default: false
+        type: boolean
 
 env:
-  DOCKERHUB_USERNAME: giathan
+  REGISTRY: docker.io
+  IMAGE_PREFIX: giathan
 
+# ============================================================
+# Job 1: Detect which services changed
+# ============================================================
 jobs:
-  typecheck:
-    name: Typecheck
+  detect-changes:
+    name: Detect Changes
     runs-on: ubuntu-latest
+    outputs:
+      auth-service:        ${{ steps.filter.outputs.auth-service }}
+      account-service:     ${{ steps.filter.outputs.account-service }}
+      transaction-service: ${{ steps.filter.outputs.transaction-service }}
+      notification-service: ${{ steps.filter.outputs.notification-service }}
+      frontend:            ${{ steps.filter.outputs.frontend }}
+      services-list:       ${{ steps.build-list.outputs.services }}
     steps:
       - uses: actions/checkout@v4
 
+      - name: Detect file changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            auth-service:
+              - 'services/auth-service/**'
+              - 'services/shared/**'
+            account-service:
+              - 'services/account-service/**'
+              - 'services/shared/**'
+            transaction-service:
+              - 'services/transaction-service/**'
+              - 'services/shared/**'
+            notification-service:
+              - 'services/notification-service/**'
+              - 'services/shared/**'
+            frontend:
+              - 'frontend/**'
+
+      - name: Build services list
+        id: build-list
+        run: |
+          # Manual trigger
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "services=${{ github.event.inputs.services }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # shared thay đổi → build all services
+          if [ "${{ steps.filter.outputs.auth-service }}" == "true" ] && \
+             [ "${{ steps.filter.outputs.account-service }}" == "true" ] && \
+             [ "${{ steps.filter.outputs.transaction-service }}" == "true" ] && \
+             [ "${{ steps.filter.outputs.notification-service }}" == "true" ]; then
+            echo "services=all" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          SERVICES=""
+          [ "${{ steps.filter.outputs.auth-service }}"        == "true" ] && SERVICES="$SERVICES,auth-service"
+          [ "${{ steps.filter.outputs.account-service }}"     == "true" ] && SERVICES="$SERVICES,account-service"
+          [ "${{ steps.filter.outputs.transaction-service }}" == "true" ] && SERVICES="$SERVICES,transaction-service"
+          [ "${{ steps.filter.outputs.notification-service }}" == "true" ] && SERVICES="$SERVICES,notification-service"
+          [ "${{ steps.filter.outputs.frontend }}"            == "true" ] && SERVICES="$SERVICES,frontend"
+
+          SERVICES="${SERVICES#,}"
+          [ -z "$SERVICES" ] && SERVICES="none"
+          echo "services=$SERVICES" >> $GITHUB_OUTPUT
+          echo "Changed: $SERVICES"
+
+# ============================================================
+# Job 2: Typecheck (chạy song song từng service)
+# ============================================================
+  typecheck:
+    name: Typecheck (${{ matrix.service }})
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.services-list != 'none' &&
+      github.event.inputs.skip_typecheck != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { service: auth-service,        port: 3001 }
+          - { service: account-service,     port: 3002 }
+          - { service: transaction-service, port: 3003 }
+          - { service: notification-service, port: 3004 }
+    steps:
+      - name: Check if should typecheck
+        id: should-run
+        run: |
+          SERVICES="${{ needs.detect-changes.outputs.services-list }}"
+          if [ "$SERVICES" == "all" ] || echo "$SERVICES" | grep -q "${{ matrix.service }}"; then
+            echo "run=true" >> $GITHUB_OUTPUT
+          else
+            echo "run=false" >> $GITHUB_OUTPUT
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.should-run.outputs.run == 'true'
+
       - uses: actions/setup-node@v4
+        if: steps.should-run.outputs.run == 'true'
         with:
           node-version: 20
           cache: npm
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Generate Prisma clients
+      - name: Install & Generate Prisma
+        if: steps.should-run.outputs.run == 'true'
         run: |
-          cd services/auth-service && npx prisma generate && cd ../..
-          cd services/account-service && npx prisma generate && cd ../..
-          cd services/transaction-service && npx prisma generate && cd ../..
-          cd services/notification-service && npx prisma generate && cd ../..
+          npm install
+          cd services/${{ matrix.service }} && npx prisma generate
 
-      - name: Typecheck auth-service
-        run: cd services/auth-service && npx tsc --noEmit
+      - name: Typecheck
+        if: steps.should-run.outputs.run == 'true'
+        run: cd services/${{ matrix.service }} && npx tsc --noEmit
 
-      - name: Typecheck account-service
-        run: cd services/account-service && npx tsc --noEmit
-
-      - name: Typecheck transaction-service
-        run: cd services/transaction-service && npx tsc --noEmit
-
-      - name: Typecheck notification-service
-        run: cd services/notification-service && npx tsc --noEmit
-
-  build-and-push:
-    name: Build & Push Docker Images
+# ============================================================
+# Job 3: Build Docker images
+# ============================================================
+  build:
+    name: Build ${{ matrix.service }}
     runs-on: ubuntu-latest
-    needs: typecheck
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
+    needs: [detect-changes, typecheck]
+    if: |
+      always() &&
+      needs.detect-changes.outputs.services-list != 'none' &&
+      (needs.typecheck.result == 'success' || needs.typecheck.result == 'skipped')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { service: auth-service,         dockerfile: services/auth-service/Dockerfile,         context: . }
+          - { service: account-service,      dockerfile: services/account-service/Dockerfile,      context: . }
+          - { service: transaction-service,  dockerfile: services/transaction-service/Dockerfile,  context: . }
+          - { service: notification-service, dockerfile: services/notification-service/Dockerfile, context: . }
+          - { service: frontend,             dockerfile: frontend/Dockerfile,                      context: ./frontend }
     steps:
+      - name: Check if should build
+        id: should-build
+        run: |
+          SERVICES="${{ needs.detect-changes.outputs.services-list }}"
+          if [ "$SERVICES" == "all" ] || echo "$SERVICES" | grep -q "${{ matrix.service }}"; then
+            echo "build=true" >> $GITHUB_OUTPUT
+          else
+            echo "build=false" >> $GITHUB_OUTPUT
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.should-build.outputs.build == 'true'
+
+      - name: Set up Docker Buildx
+        if: steps.should-build.outputs.build == 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Generate image tags
+        if: steps.should-build.outputs.build == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/novapay-${{ matrix.service }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build image
+        if: steps.should-build.outputs.build == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/${{ matrix.service }}.tar
+
+      - name: Upload artifact
+        if: steps.should-build.outputs.build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-${{ matrix.service }}
+          path: /tmp/${{ matrix.service }}.tar
+          retention-days: 1
+
+# ============================================================
+# Job 4: Push to Docker Hub
+# ============================================================
+  push:
+    name: Push ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build]
+    if: |
+      always() &&
+      needs.build.result == 'success' &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.event.inputs.force_push == 'true'))
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth-service
+          - account-service
+          - transaction-service
+          - notification-service
+          - frontend
+    steps:
+      - name: Check if should push
+        id: should-push
+        run: |
+          SERVICES="${{ needs.detect-changes.outputs.services-list }}"
+          if [ "$SERVICES" == "all" ] || echo "$SERVICES" | grep -q "${{ matrix.service }}"; then
+            echo "push=true" >> $GITHUB_OUTPUT
+          else
+            echo "push=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Download artifact
+        if: steps.should-push.outputs.push == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: image-${{ matrix.service }}
+          path: /tmp
+        continue-on-error: true
+
+      - name: Check artifact exists
+        if: steps.should-push.outputs.push == 'true'
+        id: check
+        run: |
+          [ -f "/tmp/${{ matrix.service }}.tar" ] && echo "exists=true" >> $GITHUB_OUTPUT || echo "exists=false" >> $GITHUB_OUTPUT
+
+      - name: Load image
+        if: steps.should-push.outputs.push == 'true' && steps.check.outputs.exists == 'true'
+        run: docker load -i /tmp/${{ matrix.service }}.tar
 
       - name: Login to Docker Hub
+        if: steps.should-push.outputs.push == 'true' && steps.check.outputs.exists == 'true'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build & Push auth-service
-        uses: docker/build-push-action@v5
+      - name: Generate tags
+        if: steps.should-push.outputs.push == 'true' && steps.check.outputs.exists == 'true'
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          context: .
-          file: services/auth-service/Dockerfile
-          push: true
-          tags: giathan/novapay-auth:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/novapay-${{ matrix.service }}
+          tags: |
+            type=sha,prefix=
+            type=ref,event=branch
+            type=raw,value=latest
 
-      - name: Build & Push account-service
-        uses: docker/build-push-action@v5
+      - name: Tag & Push
+        if: steps.should-push.outputs.push == 'true' && steps.check.outputs.exists == 'true'
+        run: |
+          LOADED=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "novapay-${{ matrix.service }}" | head -1)
+          while IFS= read -r tag; do
+            docker tag "$LOADED" "$tag"
+            docker push "$tag"
+            echo "✓ Pushed: $tag"
+          done <<< "${{ steps.meta.outputs.tags }}"
+
+# ============================================================
+# Job 5: Security scan (Trivy)
+# ============================================================
+  security-scan:
+    name: Scan ${{ matrix.service }}
+    runs-on: ubuntu-latest
+    needs: [detect-changes, push]
+    if: always() && needs.push.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth-service
+          - account-service
+          - transaction-service
+          - notification-service
+          - frontend
+    steps:
+      - name: Check if should scan
+        id: should-scan
+        run: |
+          SERVICES="${{ needs.detect-changes.outputs.services-list }}"
+          if [ "$SERVICES" == "all" ] || echo "$SERVICES" | grep -q "${{ matrix.service }}"; then
+            echo "scan=true" >> $GITHUB_OUTPUT
+          else
+            echo "scan=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trivy scan
+        if: steps.should-scan.outputs.scan == 'true'
+        uses: aquasecurity/trivy-action@master
         with:
-          context: .
-          file: services/account-service/Dockerfile
-          push: true
-          tags: giathan/novapay-account:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/novapay-${{ matrix.service }}:latest
+          format: table
+          exit-code: 0
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+        continue-on-error: true
 
-      - name: Build & Push transaction-service
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/transaction-service/Dockerfile
-          push: true
-          tags: giathan/novapay-transaction:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+# ============================================================
+# Job 6: Summary
+# ============================================================
+  summary:
+    name: CI Summary
+    runs-on: ubuntu-latest
+    needs: [detect-changes, typecheck, build, push, security-scan]
+    if: always()
+    steps:
+      - name: Write summary
+        run: |
+          echo "## 🚀 NovaPay CI/CD Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Services:** \`${{ needs.detect-changes.outputs.services-list }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Stage            | Result                              |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------------|-------------------------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Typecheck        | ${{ needs.typecheck.result }}       |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build            | ${{ needs.build.result }}           |" >> $GITHUB_STEP_SUMMARY
+          echo "| Push             | ${{ needs.push.result }}            |" >> $GITHUB_STEP_SUMMARY
+          echo "| Security Scan    | ${{ needs.security-scan.result }}   |" >> $GITHUB_STEP_SUMMARY
 
-      - name: Build & Push notification-service
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: services/notification-service/Dockerfile
-          push: true
-          tags: giathan/novapay-notification:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build & Push frontend
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          file: frontend/Dockerfile
-          push: true
-          tags: giathan/novapay-frontend:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
+      - name: Check critical failure
+        run: |
+          if [ "${{ needs.build.result }}" == "failure" ]; then
+            echo "❌ Build failed!"
+            exit 1
+          fi
+          echo "✅ CI completed!"
