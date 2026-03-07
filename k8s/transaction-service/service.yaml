@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-service
+  namespace: novapay
+spec:
+  selector:
+    app: transaction-service
+  ports:
+    - port: 3003
+      targetPort: 3003

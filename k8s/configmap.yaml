@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: novapay-config
+  namespace: novapay
+data:
+  NODE_ENV: "production"
+  JWT_ACCESS_EXPIRES_IN: "15m"
+  JWT_REFRESH_EXPIRES_IN: "7d"
+  AUTH_SERVICE_URL: "http://auth-service:3001"
+  ACCOUNT_SERVICE_URL: "http://account-service:3002"
+  TRANSACTION_SERVICE_URL: "http://transaction-service:3003"
+  NOTIFICATION_SERVICE_URL: "http://notification-service:3004"

@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-service
+  namespace: novapay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transaction-service
+  template:
+    metadata:
+      labels:
+        app: transaction-service
+    spec:
+      containers:
+        - name: transaction-service
+          image: giathan/novapay-transaction-service:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: novapay-config
+            - secretRef:
+                name: novapay-secret
+          env:
+            - name: PORT
+              value: "3003"
+            - name: DATABASE_URL
+              value: "postgresql://novapay:novapay_secret@postgres:5432/novapay?schema=transaction"
+          ports:
+            - containerPort: 3003

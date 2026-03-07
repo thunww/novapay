@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: novapay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: giathan/novapay-notification-service:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: novapay-config
+            - secretRef:
+                name: novapay-secret
+          env:
+            - name: PORT
+              value: "3004"
+            - name: DATABASE_URL
+              value: "postgresql://novapay:novapay_secret@postgres:5432/novapay?schema=notification"
+            - name: REDIS_URL
+              value: "redis://:redis_secret@redis:6379"
+          ports:
+            - containerPort: 3004

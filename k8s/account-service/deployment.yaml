@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: account-service
+  namespace: novapay
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: account-service
+  template:
+    metadata:
+      labels:
+        app: account-service
+    spec:
+      containers:
+        - name: account-service
+          image: giathan/novapay-account-service:latest
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: novapay-config
+            - secretRef:
+                name: novapay-secret
+          env:
+            - name: PORT
+              value: "3002"
+            - name: DATABASE_URL
+              value: "postgresql://novapay:novapay_secret@postgres:5432/novapay?schema=account"
+            - name: REDIS_URL
+              value: "redis://:redis_secret@redis:6379"
+          ports:
+            - containerPort: 3002
