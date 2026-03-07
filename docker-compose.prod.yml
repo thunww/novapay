@@ -41,6 +41,7 @@ services:
       JWT_ACCESS_EXPIRES_IN: 15m
       JWT_REFRESH_EXPIRES_IN: 7d
       INTERNAL_SECRET: novapay_internal_secret_key
+      ACCOUNT_SERVICE_URL: http://account-service:3002
     depends_on:
       postgres:
         condition: service_healthy

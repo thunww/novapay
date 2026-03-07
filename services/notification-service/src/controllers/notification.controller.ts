@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express'
 import { notificationService } from '../services/notification.service'
+import { pubsubService } from '../services/pubsub.service'
 import { sendSuccess } from '../utils/response'
 
 export const notificationController = {
@@ -19,6 +20,15 @@ export const notificationController = {
     } catch (err) { next(err) }
   },
 
+  async internalNotify(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId, message, transactionId } = req.body
+      if (!userId || !message) return res.status(400).json({ message: 'userId and message required' })
+      const notification = await notificationService.create(userId, message, transactionId)
+      await pubsubService.publish(userId, notification)
+      return sendSuccess(res, notification)
+    } catch (err) { next(err) }
+  },
   async markAllAsRead(req: Request, res: Response, next: NextFunction) {
     try {
       await notificationService.markAllAsRead(req.user!.id)

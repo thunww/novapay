@@ -1,34 +1,56 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { io, Socket } from 'socket.io-client'
 import { notificationApi } from '../api/notification'
 import { useAuthStore } from '../stores/auth.store'
 import { Notification } from '../types'
 import { Badge } from '@/components/ui/badge'
 
-let socket: Socket | null = null
-
 export default function NotificationBell() {
   const { user } = useAuthStore()
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [open, setOpen] = useState(false)
-
+  const socketRef = useRef<Socket | null>(null)
   const unreadCount = notifications.filter(n => !n.isRead).length
 
   useEffect(() => {
     notificationApi.getAll()
       .then(res => setNotifications(res.data.data || []))
       .catch(console.error)
+  }, [])
 
-    if (user && !socket) {
-      socket = io('/', { path: '/socket.io' })
-      socket.emit('join', user.id)
-      socket.on('notification', (data: Notification) => {
-        setNotifications(prev => [data, ...prev])
-      })
+  useEffect(() => {
+    if (!user?.id) return
+
+    // Disconnect cũ nếu có
+    if (socketRef.current) {
+      socketRef.current.disconnect()
+      socketRef.current = null
     }
 
-    return () => { socket?.disconnect(); socket = null }
-  }, [user])
+    const socket = io('/', {
+      path: '/socket.io',
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+    })
+
+    socketRef.current = socket
+
+    socket.on('connect', () => {
+      socket.emit('join', user.id)
+    })
+
+    socket.on('notification', (data: Notification) => {
+      setNotifications(prev => [data, ...prev])
+    })
+
+
+    return () => {
+      socket.disconnect()
+      socketRef.current = null
+    }
+  }, [user?.id])
 
   const handleMarkAll = async () => {
     await notificationApi.markAllAsRead()
@@ -60,9 +82,9 @@ export default function NotificationBell() {
               <p className="text-center py-6 text-sm text-slate-500">No notifications</p>
             ) : (
               notifications.slice(0, 10).map((n) => (
-                <div key={n.id} className={`p-3 border-b text-sm ${!n.isRead ? 'bg-blue-50' : ''}`}>
+                <div key={n.id} className={`p-3 border-b text-sm ${!n.isRead ? "bg-blue-50" : ""}`}>
                   <p>{n.message}</p>
-                  <p className="text-xs text-slate-400 mt-1">{new Date(n.createdAt).toLocaleString('vi-VN')}</p>
+                  <p className="text-xs text-slate-400 mt-1">{new Date(n.createdAt).toLocaleString("vi-VN")}</p>
                 </div>
               ))
             )}

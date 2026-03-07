@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs'
 import { v4 as uuidv4 } from 'uuid'
 import prisma from '../config/prisma'
 import redis from '../config/redis'
+import { env } from '../config/env'
 import { generateAccessToken, generateRefreshToken, verifyAccessToken } from '../utils/jwt'
 import { blacklistService } from './blacklist.service'
 import { ServiceError } from '../../../shared/types'
@@ -18,6 +19,16 @@ export const authService = {
       data: { username, email, passwordHash },
       select: { id: true, username: true, email: true, role: true, createdAt: true },
     })
+    // Tạo account cho user mới
+    try {
+      await fetch(`${env.ACCOUNT_SERVICE_URL}/api/account/internal/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': env.INTERNAL_SECRET },
+        body: JSON.stringify({ userId: user.id }),
+      })
+    } catch (e) {
+      console.error('Failed to create account for user', user.id, e)
+    }
     return user
   },
 
@@ -107,6 +118,16 @@ export const authService = {
       select: { id: true, username: true, email: true, role: true, createdAt: true },
     })
     if (!user) throw new ServiceError(404, 'User not found')
+    // Tạo account cho user mới
+    try {
+      await fetch(`${env.ACCOUNT_SERVICE_URL}/api/account/internal/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-secret': env.INTERNAL_SECRET },
+        body: JSON.stringify({ userId: user.id }),
+      })
+    } catch (e) {
+      console.error('Failed to create account for user', user.id, e)
+    }
     return user
   },
 }

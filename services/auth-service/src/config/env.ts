@@ -11,6 +11,7 @@ const schema = z.object({
   JWT_ACCESS_EXPIRES_IN:   z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN:  z.string().default('7d'),
   INTERNAL_SECRET:         z.string().min(1),
+  ACCOUNT_SERVICE_URL:     z.string().url().default('http://localhost:3002'),
 })
 
 const parsed = schema.safeParse(process.env)

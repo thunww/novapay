@@ -1,12 +1,25 @@
+import { useEffect } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../stores/auth.store'
 import { authApi } from '../../api/auth'
+import { api } from '../../api/client'
 import { Button } from '@/components/ui/button'
 import NotificationBell from '../NotificationBell'
 
 export default function Layout() {
-  const { user, clearAuth } = useAuthStore()
+  const { user, clearAuth, setAuth, token } = useAuthStore()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    if (token && !user) {
+      api.get('/api/me').then(res => {
+        setAuth(res.data.data, token)
+      }).catch(() => {
+        clearAuth()
+        navigate('/login')
+      })
+    }
+  }, [token])
 
   const handleLogout = async () => {
     try { await authApi.logout() } catch {}

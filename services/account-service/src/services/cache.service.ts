@@ -15,6 +15,9 @@ export const cacheService = {
     return JSON.parse(cached) as CachedBalance
   },
 
+  async deleteBalance(userId: string): Promise<void> {
+    await redis.del(`balance:${userId}`)
+  },
   async setBalance(userId: string, data: CachedBalance): Promise<void> {
     await redis.set(`${BALANCE_PREFIX}${userId}`, JSON.stringify(data), 'EX', BALANCE_TTL)
   },

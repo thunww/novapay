@@ -8,4 +8,5 @@ router.get('/api/notifications', verifyToken, notificationController.getAll)
 router.patch('/api/notifications/:id/read', verifyToken, notificationController.markAsRead)
 router.patch('/api/notifications/read-all', verifyToken, notificationController.markAllAsRead)
 
+router.post('/api/notifications/internal/notify', notificationController.internalNotify)
 export default router
