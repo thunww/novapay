@@ -33,7 +33,7 @@ app.get('/metrics', (_req, res) => {
   res.send('# auth-service metrics\n')
 })
 
-// Error handler — phải đặt CUỐI CÙNG
+// Error handler — phải đặt cuối cùng
 app.use(errorHandler)
 
 app.listen(env.PORT, () => {
