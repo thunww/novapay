@@ -1,0 +1,68 @@
+namespace: novapay
+imageRegistry: giathan
+
+# Bitnami PostgreSQL
+postgres:
+  auth:
+    username: novapay
+    password: novapay_secret
+    database: novapay
+  primary:
+    initdb:
+      scripts:
+        init-schemas.sql: |
+          CREATE SCHEMA IF NOT EXISTS auth;
+          CREATE SCHEMA IF NOT EXISTS account;
+          CREATE SCHEMA IF NOT EXISTS transaction;
+          CREATE SCHEMA IF NOT EXISTS notification;
+    persistence:
+      size: 1Gi
+
+# Bitnami Redis
+redis:
+  auth:
+    password: redis_secret
+  architecture: standalone
+  master:
+    persistence:
+      enabled: false
+
+# JWT
+jwt:
+  secret: novapay_super_secret_jwt_key_min_32_chars
+  accessExpiresIn: 15m
+  refreshExpiresIn: 7d
+
+internalSecret: novapay_internal_secret_key
+
+# Services
+services:
+  auth:
+    image: novapay-auth-service
+    tag: latest
+    port: 3001
+    replicas: 1
+  account:
+    image: novapay-account-service
+    tag: latest
+    port: 3002
+    replicas: 1
+  transaction:
+    image: novapay-transaction-service
+    tag: latest
+    port: 3003
+    replicas: 1
+  notification:
+    image: novapay-notification-service
+    tag: latest
+    port: 3004
+    replicas: 1
+
+# Frontend
+frontend:
+  image: novapay-frontend
+  tag: latest
+  port: 80
+  replicas: 1
+  ingress:
+    host: novapay.local

@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: transaction-service
+  namespace: {{ .Values.namespace }}
+spec:
+  selector:
+    app: transaction-service
+  ports:
+    - port: {{ .Values.services.transaction.port }}
+      targetPort: {{ .Values.services.transaction.port }}

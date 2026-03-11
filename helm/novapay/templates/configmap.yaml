@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: novapay-config
+  namespace: {{ .Values.namespace }}
+data:
+  NODE_ENV: "production"
+  JWT_ACCESS_EXPIRES_IN: {{ .Values.jwt.accessExpiresIn | quote }}
+  JWT_REFRESH_EXPIRES_IN: {{ .Values.jwt.refreshExpiresIn | quote }}
+  AUTH_SERVICE_URL: "http://auth-service:{{ .Values.services.auth.port }}"
+  ACCOUNT_SERVICE_URL: "http://account-service:{{ .Values.services.account.port }}"
+  TRANSACTION_SERVICE_URL: "http://transaction-service:{{ .Values.services.transaction.port }}"
+  NOTIFICATION_SERVICE_URL: "http://notification-service:{{ .Values.services.notification.port }}"

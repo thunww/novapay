@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: account-service
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.services.account.replicas }}
+  selector:
+    matchLabels:
+      app: account-service
+  template:
+    metadata:
+      labels:
+        app: account-service
+    spec:
+      containers:
+        - name: account-service
+          image: {{ .Values.imageRegistry }}/{{ .Values.services.account.image }}:{{ .Values.services.account.tag }}
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: novapay-config
+            - secretRef:
+                name: novapay-secret
+          env:
+            - name: PORT
+              value: {{ .Values.services.account.port | quote }}
+            - name: DATABASE_URL
+              value: "postgresql://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@{{ .Release.Name }}-postgres:5432/{{ .Values.postgres.auth.database }}?schema=account"
+            - name: REDIS_URL
+              value: "redis://:{{ .Values.redis.auth.password }}@{{ .Release.Name }}-redis-master:6379"
+          ports:
+            - containerPort: {{ .Values.services.account.port }}

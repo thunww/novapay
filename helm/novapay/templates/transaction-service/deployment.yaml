@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transaction-service
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.services.transaction.replicas }}
+  selector:
+    matchLabels:
+      app: transaction-service
+  template:
+    metadata:
+      labels:
+        app: transaction-service
+    spec:
+      containers:
+        - name: transaction-service
+          image: {{ .Values.imageRegistry }}/{{ .Values.services.transaction.image }}:{{ .Values.services.transaction.tag }}
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: novapay-config
+            - secretRef:
+                name: novapay-secret
+          env:
+            - name: PORT
+              value: {{ .Values.services.transaction.port | quote }}
+            - name: DATABASE_URL
+              value: "postgresql://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@{{ .Release.Name }}-postgres:5432/{{ .Values.postgres.auth.database }}?schema=transaction"
+          ports:
+            - containerPort: {{ .Values.services.transaction.port }}

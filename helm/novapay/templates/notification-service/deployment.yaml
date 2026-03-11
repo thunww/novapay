@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.services.notification.replicas }}
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: {{ .Values.imageRegistry }}/{{ .Values.services.notification.image }}:{{ .Values.services.notification.tag }}
+          imagePullPolicy: Always
+          envFrom:
+            - configMapRef:
+                name: novapay-config
+            - secretRef:
+                name: novapay-secret
+          env:
+            - name: PORT
+              value: {{ .Values.services.notification.port | quote }}
+            - name: DATABASE_URL
+              value: "postgresql://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@{{ .Release.Name }}-postgres:5432/{{ .Values.postgres.auth.database }}?schema=notification"
+            - name: REDIS_URL
+              value: "redis://:{{ .Values.redis.auth.password }}@{{ .Release.Name }}-redis-master:6379"
+          ports:
+            - containerPort: {{ .Values.services.notification.port }}
