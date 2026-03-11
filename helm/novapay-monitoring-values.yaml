@@ -1,0 +1,7 @@
+grafana:
+  adminUser: admin
+  adminPassword: novapay123
+
+prometheus:
+  prometheusSpec:
+    retention: 7d

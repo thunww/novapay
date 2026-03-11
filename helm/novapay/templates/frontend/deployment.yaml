@@ -17,5 +17,13 @@ spec:
         - name: frontend
           image: {{ .Values.imageRegistry }}/{{ .Values.frontend.image }}:{{ .Values.frontend.tag }}
           imagePullPolicy: Always
+
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           ports:
             - containerPort: {{ .Values.frontend.port }}
