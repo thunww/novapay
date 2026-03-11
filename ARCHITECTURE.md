@@ -363,9 +363,9 @@ minikube cluster
     │
     ├── Ingress (novapay.local:80)
     ├── frontend Deployment + Service
-    ├── auth-service Deployment + Service + HPA
-    ├── account-service Deployment + Service + HPA
-    ├── transaction-service Deployment + Service + HPA
+    ├── auth-service Deployment + Service
+    ├── account-service Deployment + Service
+    ├── transaction-service Deployment + Service
     ├── notification-service Deployment + Service
     ├── novapay-postgres StatefulSet + Service + PVC
     └── novapay-redis StatefulSet + Service
