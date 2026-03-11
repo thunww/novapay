@@ -2,7 +2,6 @@
 
 > Portfolio project demonstrating a production-grade microservices architecture for an intern DevOps/Fullstack position.
 
-![CI/CD](https://github.com/thunww/novapay/actions/workflows/ci.yml/badge.svg)
 
 ---
 
