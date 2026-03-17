@@ -28,3 +28,7 @@ coverage/
 
 # Helm
 charts/*.tgz
+alb-policy*.json
+helmnovapayvalues-aws.yaml
+alb-policy*.json
+node_modules/
