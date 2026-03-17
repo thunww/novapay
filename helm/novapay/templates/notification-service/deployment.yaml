@@ -26,9 +26,9 @@ spec:
             - name: PORT
               value: {{ .Values.services.notification.port | quote }}
             - name: DATABASE_URL
-              value: "postgresql://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@{{ .Release.Name }}-postgres:5432/{{ .Values.postgres.auth.database }}?schema=notification"
+              value: "postgresql://{{ .Values.postgres.auth.username }}:{{ .Values.postgres.auth.password }}@{{ .Values.postgres.auth.host | default (printf "%s-postgres" .Release.Name) }}:5432/{{ .Values.postgres.auth.database }}?schema=notification"
             - name: REDIS_URL
-              value: "redis://:{{ .Values.redis.auth.password }}@{{ .Release.Name }}-redis-master:6379"
+              value: "redis://:{{ .Values.redis.auth.password }}@{{ .Values.redis.host | default (printf "%s-redis-master" .Release.Name) }}:6379"
 
           resources:
             requests:

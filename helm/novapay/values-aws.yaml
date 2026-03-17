@@ -1,0 +1,37 @@
+namespace: novapay
+
+imageRegistry: 541291114358.dkr.ecr.us-east-1.amazonaws.com/novapay
+
+postgres:
+  enabled: false
+  auth:
+    username: novapay
+    password: Giathan2310
+    database: novapay
+    host: novapay-db.col4kc86c4qo.us-east-1.rds.amazonaws.com
+
+redis:
+  enabled: false
+  auth:
+    password: ""
+  host: novapay-redis.p1wsdi.ng.0001.use1.cache.amazonaws.com
+
+services:
+  auth:
+    image: auth-service
+    tag: latest
+  account:
+    image: account-service
+    tag: latest
+  transaction:
+    image: transaction-service
+    tag: latest
+  notification:
+    image: notification-service
+    tag: latest
+
+frontend:
+  image: frontend
+  tag: latest
+  ingress:
+    host: novapay.local

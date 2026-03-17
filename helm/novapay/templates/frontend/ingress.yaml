@@ -4,14 +4,71 @@ metadata:
   name: novapay-ingress
   namespace: {{ .Values.namespace }}
   annotations:
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/subnets: subnet-0ddf0de64d5a5a9c0,subnet-070bf010e1e9669d2
+    alb.ingress.kubernetes.io/security-groups: sg-082bc183bde786d04
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+    alb.ingress.kubernetes.io/healthcheck-path: /health
+    alb.ingress.kubernetes.io/healthcheck-interval-seconds: "15"
+    alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+    alb.ingress.kubernetes.io/unhealthy-threshold-count: "3"
+    alb.ingress.kubernetes.io/success-codes: "200,404"
 spec:
-  ingressClassName: nginx
+  ingressClassName: alb
   rules:
-    - host: {{ .Values.frontend.ingress.host }}
-      http:
+    - http:
         paths:
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: {{ .Values.services.auth.port }}
+          - path: /api/me
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: {{ .Values.services.auth.port }}
+          - path: /api/account
+            pathType: Prefix
+            backend:
+              service:
+                name: account-service
+                port:
+                  number: {{ .Values.services.account.port }}
+          - path: /api/transfer
+            pathType: Prefix
+            backend:
+              service:
+                name: transaction-service
+                port:
+                  number: {{ .Values.services.transaction.port }}
+          - path: /api/transactions
+            pathType: Prefix
+            backend:
+              service:
+                name: transaction-service
+                port:
+                  number: {{ .Values.services.transaction.port }}
+          - path: /api/notifications
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: {{ .Values.services.notification.port }}
+          - path: /socket.io
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: {{ .Values.services.notification.port }}
           - path: /
             pathType: Prefix
             backend:
