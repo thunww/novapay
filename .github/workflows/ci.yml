@@ -25,20 +25,12 @@ on:
           - transaction-service
           - notification-service
           - frontend
-      skip_typecheck:
-        description: 'Skip typecheck (hotfix)'
-        required: false
-        default: false
-        type: boolean
-      force_push:
-        description: 'Force push (non-main branch)'
-        required: false
-        default: false
-        type: boolean
 
 env:
-  REGISTRY: docker.io
-  IMAGE_PREFIX: giathan
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 541291114358.dkr.ecr.us-east-1.amazonaws.com
+  ECR_PREFIX: novapay
+  EKS_CLUSTER: novapay
 
 # ============================================================
 # Job 1: Detect which services changed
@@ -48,12 +40,12 @@ jobs:
     name: Detect Changes
     runs-on: ubuntu-latest
     outputs:
-      auth-service:        ${{ steps.filter.outputs.auth-service }}
-      account-service:     ${{ steps.filter.outputs.account-service }}
-      transaction-service: ${{ steps.filter.outputs.transaction-service }}
+      auth-service:         ${{ steps.filter.outputs.auth-service }}
+      account-service:      ${{ steps.filter.outputs.account-service }}
+      transaction-service:  ${{ steps.filter.outputs.transaction-service }}
       notification-service: ${{ steps.filter.outputs.notification-service }}
-      frontend:            ${{ steps.filter.outputs.frontend }}
-      services-list:       ${{ steps.build-list.outputs.services }}
+      frontend:             ${{ steps.filter.outputs.frontend }}
+      services-list:        ${{ steps.build-list.outputs.services }}
     steps:
       - uses: actions/checkout@v4
 
@@ -64,69 +56,52 @@ jobs:
           filters: |
             auth-service:
               - 'services/auth-service/**'
-              - 'services/shared/**'
             account-service:
               - 'services/account-service/**'
-              - 'services/shared/**'
             transaction-service:
               - 'services/transaction-service/**'
-              - 'services/shared/**'
             notification-service:
               - 'services/notification-service/**'
-              - 'services/shared/**'
             frontend:
               - 'frontend/**'
 
       - name: Build services list
         id: build-list
         run: |
-          # Manual trigger
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             echo "services=${{ github.event.inputs.services }}" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          # shared thay đổi → build all services
-          if [ "${{ steps.filter.outputs.auth-service }}" == "true" ] && \
-             [ "${{ steps.filter.outputs.account-service }}" == "true" ] && \
-             [ "${{ steps.filter.outputs.transaction-service }}" == "true" ] && \
-             [ "${{ steps.filter.outputs.notification-service }}" == "true" ]; then
-            echo "services=all" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
           SERVICES=""
-          [ "${{ steps.filter.outputs.auth-service }}"        == "true" ] && SERVICES="$SERVICES,auth-service"
-          [ "${{ steps.filter.outputs.account-service }}"     == "true" ] && SERVICES="$SERVICES,account-service"
-          [ "${{ steps.filter.outputs.transaction-service }}" == "true" ] && SERVICES="$SERVICES,transaction-service"
+          [ "${{ steps.filter.outputs.auth-service }}"         == "true" ] && SERVICES="$SERVICES,auth-service"
+          [ "${{ steps.filter.outputs.account-service }}"      == "true" ] && SERVICES="$SERVICES,account-service"
+          [ "${{ steps.filter.outputs.transaction-service }}"  == "true" ] && SERVICES="$SERVICES,transaction-service"
           [ "${{ steps.filter.outputs.notification-service }}" == "true" ] && SERVICES="$SERVICES,notification-service"
-          [ "${{ steps.filter.outputs.frontend }}"            == "true" ] && SERVICES="$SERVICES,frontend"
+          [ "${{ steps.filter.outputs.frontend }}"             == "true" ] && SERVICES="$SERVICES,frontend"
 
           SERVICES="${SERVICES#,}"
           [ -z "$SERVICES" ] && SERVICES="none"
           echo "services=$SERVICES" >> $GITHUB_OUTPUT
-          echo "Changed: $SERVICES"
 
 # ============================================================
-# Job 2: Typecheck (chạy song song từng service)
+# Job 2: Typecheck
 # ============================================================
   typecheck:
     name: Typecheck (${{ matrix.service }})
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.services-list != 'none' &&
-      github.event.inputs.skip_typecheck != 'true'
+    if: needs.detect-changes.outputs.services-list != 'none'
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { service: auth-service,        port: 3001 }
-          - { service: account-service,     port: 3002 }
-          - { service: transaction-service, port: 3003 }
-          - { service: notification-service, port: 3004 }
+          - { service: auth-service }
+          - { service: account-service }
+          - { service: transaction-service }
+          - { service: notification-service }
     steps:
-      - name: Check if should typecheck
+      - name: Check if should run
         id: should-run
         run: |
           SERVICES="${{ needs.detect-changes.outputs.services-list }}"
@@ -156,16 +131,17 @@ jobs:
         run: cd services/${{ matrix.service }} && npx tsc --noEmit
 
 # ============================================================
-# Job 3: Build Docker images
+# Job 3: Build & Push to ECR
 # ============================================================
-  build:
-    name: Build ${{ matrix.service }}
+  build-push:
+    name: Build & Push ${{ matrix.service }}
     runs-on: ubuntu-latest
     needs: [detect-changes, typecheck]
     if: |
       always() &&
       needs.detect-changes.outputs.services-list != 'none' &&
-      (needs.typecheck.result == 'success' || needs.typecheck.result == 'skipped')
+      (needs.typecheck.result == 'success' || needs.typecheck.result == 'skipped') &&
+      github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -175,6 +151,8 @@ jobs:
           - { service: transaction-service,  dockerfile: services/transaction-service/Dockerfile,  context: . }
           - { service: notification-service, dockerfile: services/notification-service/Dockerfile, context: . }
           - { service: frontend,             dockerfile: frontend/Dockerfile,                      context: ./frontend }
+    outputs:
+      image-tag: ${{ steps.meta.outputs.version }}
     steps:
       - name: Check if should build
         id: should-build
@@ -189,167 +167,111 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.should-build.outputs.build == 'true'
 
+      - name: Configure AWS credentials
+        if: steps.should-build.outputs.build == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        if: steps.should-build.outputs.build == 'true'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Generate image tag
+        if: steps.should-build.outputs.build == 'true'
+        id: meta
+        run: |
+          SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "version=$SHA" >> $GITHUB_OUTPUT
+          echo "image=${{ env.ECR_REGISTRY }}/${{ env.ECR_PREFIX }}/${{ matrix.service }}" >> $GITHUB_OUTPUT
+
       - name: Set up Docker Buildx
         if: steps.should-build.outputs.build == 'true'
         uses: docker/setup-buildx-action@v3
 
-      - name: Generate image tags
-        if: steps.should-build.outputs.build == 'true'
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/novapay-${{ matrix.service }}
-          tags: |
-            type=sha,prefix=
-            type=ref,event=branch
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-
-      - name: Build image
+      - name: Build & Push
         if: steps.should-build.outputs.build == 'true'
         uses: docker/build-push-action@v5
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          push: false
-          tags: ${{ steps.meta.outputs.tags }}
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          outputs: type=docker,dest=/tmp/${{ matrix.service }}.tar
 
-      - name: Upload artifact
+      - name: Summary
         if: steps.should-build.outputs.build == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: image-${{ matrix.service }}
-          path: /tmp/${{ matrix.service }}.tar
-          retention-days: 1
+        run: |
+          echo "✅ Pushed: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}"
 
 # ============================================================
-# Job 4: Push to Docker Hub
+# Job 4: Deploy to EKS
 # ============================================================
-  push:
-    name: Push ${{ matrix.service }}
+  deploy:
+    name: Deploy to EKS
     runs-on: ubuntu-latest
-    needs: [detect-changes, build]
+    needs: [detect-changes, build-push]
     if: |
       always() &&
-      needs.build.result == 'success' &&
-      (
-        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-        (github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.event.inputs.force_push == 'true'))
-      )
-    strategy:
-      fail-fast: false
-      matrix:
-        service:
-          - auth-service
-          - account-service
-          - transaction-service
-          - notification-service
-          - frontend
+      needs.build-push.result == 'success' &&
+      github.ref == 'refs/heads/main'
     steps:
-      - name: Check if should push
-        id: should-push
-        run: |
-          SERVICES="${{ needs.detect-changes.outputs.services-list }}"
-          if [ "$SERVICES" == "all" ] || echo "$SERVICES" | grep -q "${{ matrix.service }}"; then
-            echo "push=true" >> $GITHUB_OUTPUT
-          else
-            echo "push=false" >> $GITHUB_OUTPUT
-          fi
+      - uses: actions/checkout@v4
 
-      - name: Download artifact
-        if: steps.should-push.outputs.push == 'true'
-        uses: actions/download-artifact@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: image-${{ matrix.service }}
-          path: /tmp
-        continue-on-error: true
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Check artifact exists
-        if: steps.should-push.outputs.push == 'true'
-        id: check
+      - name: Update kubeconfig
         run: |
-          [ -f "/tmp/${{ matrix.service }}.tar" ] && echo "exists=true" >> $GITHUB_OUTPUT || echo "exists=false" >> $GITHUB_OUTPUT
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ env.EKS_CLUSTER }}
 
-      - name: Load image
-        if: steps.should-push.outputs.push == 'true' && steps.check.outputs.exists == 'true'
-        run: docker load -i /tmp/${{ matrix.service }}.tar
+      - name: Install Helm
+        uses: azure/setup-helm@v4
 
-      - name: Login to Docker Hub
-        if: steps.should-push.outputs.push == 'true' && steps.check.outputs.exists == 'true'
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Get image tag
+        id: tag
+        run: echo "sha=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
 
-      - name: Generate tags
-        if: steps.should-push.outputs.push == 'true' && steps.check.outputs.exists == 'true'
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/novapay-${{ matrix.service }}
-          tags: |
-            type=sha,prefix=
-            type=ref,event=branch
-            type=raw,value=latest
-
-      - name: Tag & Push
-        if: steps.should-push.outputs.push == 'true' && steps.check.outputs.exists == 'true'
+      - name: Deploy with Helm
         run: |
-          LOADED=$(docker images --format "{{.Repository}}:{{.Tag}}" | grep "novapay-${{ matrix.service }}" | head -1)
-          while IFS= read -r tag; do
-            docker tag "$LOADED" "$tag"
-            docker push "$tag"
-            echo "✓ Pushed: $tag"
-          done <<< "${{ steps.meta.outputs.tags }}"
+          helm upgrade novapay helm/novapay \
+            -f helm/novapay/values-aws.yaml \
+            --namespace novapay \
+            --set services.auth.tag=${{ steps.tag.outputs.sha }} \
+            --set services.account.tag=${{ steps.tag.outputs.sha }} \
+            --set services.transaction.tag=${{ steps.tag.outputs.sha }} \
+            --set services.notification.tag=${{ steps.tag.outputs.sha }} \
+            --set frontend.tag=${{ steps.tag.outputs.sha }} \
+            --wait \
+            --timeout 5m
+
+      - name: Verify rollout
+        run: |
+          kubectl rollout status deployment/auth-service -n novapay
+          kubectl rollout status deployment/account-service -n novapay
+          kubectl rollout status deployment/transaction-service -n novapay
+          kubectl rollout status deployment/notification-service -n novapay
+          kubectl rollout status deployment/frontend -n novapay
+          echo "✅ All services deployed successfully!"
 
 # ============================================================
-# Job 5: Security scan (Trivy)
-# ============================================================
-  security-scan:
-    name: Scan ${{ matrix.service }}
-    runs-on: ubuntu-latest
-    needs: [detect-changes, push]
-    if: always() && needs.push.result == 'success'
-    strategy:
-      fail-fast: false
-      matrix:
-        service:
-          - auth-service
-          - account-service
-          - transaction-service
-          - notification-service
-          - frontend
-    steps:
-      - name: Check if should scan
-        id: should-scan
-        run: |
-          SERVICES="${{ needs.detect-changes.outputs.services-list }}"
-          if [ "$SERVICES" == "all" ] || echo "$SERVICES" | grep -q "${{ matrix.service }}"; then
-            echo "scan=true" >> $GITHUB_OUTPUT
-          else
-            echo "scan=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Trivy scan
-        if: steps.should-scan.outputs.scan == 'true'
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/novapay-${{ matrix.service }}:latest
-          format: table
-          exit-code: 0
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-        continue-on-error: true
-
-# ============================================================
-# Job 6: Summary
+# Job 5: Summary
 # ============================================================
   summary:
-    name: CI Summary
+    name: Summary
     runs-on: ubuntu-latest
-    needs: [detect-changes, typecheck, build, push, security-scan]
+    needs: [detect-changes, typecheck, build-push, deploy]
     if: always()
     steps:
       - name: Write summary
@@ -360,17 +282,8 @@ jobs:
           echo "**Branch:** \`${{ github.ref_name }}\`" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Stage            | Result                              |" >> $GITHUB_STEP_SUMMARY
-          echo "|------------------|-------------------------------------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Typecheck        | ${{ needs.typecheck.result }}       |" >> $GITHUB_STEP_SUMMARY
-          echo "| Build            | ${{ needs.build.result }}           |" >> $GITHUB_STEP_SUMMARY
-          echo "| Push             | ${{ needs.push.result }}            |" >> $GITHUB_STEP_SUMMARY
-          echo "| Security Scan    | ${{ needs.security-scan.result }}   |" >> $GITHUB_STEP_SUMMARY
-
-      - name: Check critical failure
-        run: |
-          if [ "${{ needs.build.result }}" == "failure" ]; then
-            echo "❌ Build failed!"
-            exit 1
-          fi
-          echo "✅ CI completed!"
+          echo "| Stage      | Result                          |" >> $GITHUB_STEP_SUMMARY
+          echo "|------------|---------------------------------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Typecheck  | ${{ needs.typecheck.result }}   |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build/Push | ${{ needs.build-push.result }}  |" >> $GITHUB_STEP_SUMMARY
+          echo "| Deploy     | ${{ needs.deploy.result }}      |" >> $GITHUB_STEP_SUMMARY
