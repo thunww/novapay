@@ -59,7 +59,7 @@ Traffic từ internet đi qua **ALB** (Application Load Balancer) — đây là 
 
 ### 1.4 Services & Flow
 
-Xem chi tiết tại [ARCHITECTURE.md](../ARCHITECTURE.md)
+Xem chi tiết tại [ARCHITECTURE.md](ARCHITECTURE.md/)
 
 **Nhiệm vụ từng service:**
 
