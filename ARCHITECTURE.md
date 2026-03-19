@@ -3,41 +3,30 @@
 ## Table of Contents
 
 - [System Overview](#system-overview)
-- [Architecture Diagram](#architecture-diagram)
 - [Service Details](#service-details)
 - [Code Flow](#code-flow)
 - [Data Layer](#data-layer)
 - [Realtime Flow](#realtime-flow)
-- [DevOps Stack](#devops-stack)
 
 ---
 
 ## System Overview
 
-NovaPay là banking demo app với kiến trúc **microservices**, mỗi service chịu trách nhiệm một domain riêng biệt, giao tiếp qua HTTP nội bộ và Redis pub/sub.
+NovaPay là banking demo app với kiến trúc microservices, mỗi service chịu trách nhiệm một domain riêng biệt, giao tiếp qua HTTP nội bộ và Redis pub/sub.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        EXTERNAL TRAFFIC                         │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Ingress Nginx / Nginx Proxy                   │
-│                      novapay.local:80                           │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Frontend (React + Vite)                     │
-│                          Port: 80                               │
-│                                                                 │
-│  /api/auth/*         /api/account/*     /api/transfer/*         │
-│  /api/me             /api/notifications  /api/transactions/*    │
-│  /socket.io                                                     │
-└──────┬──────────────────┬─────────────────┬────────────────┬────┘
-       │                  │                 │                │
-       ▼                  ▼                 ▼                ▼
+                        Internet
+                            │
+                            ▼
+              ALB (Application Load Balancer)
+                            │
+        ┌───────────────────┼───────────────────┐
+        │                   │                   │
+  /api/auth/*         /api/account/*      /api/transfer/*
+  /api/me             /api/notifications  /api/transactions/*
+  /api/auth/refresh   /socket.io/*        /*→ frontend
+        │                   │                   │
+        ▼                   ▼                   ▼
 ┌────────────┐   ┌──────────────┐  ┌─────────────┐  ┌──────────────┐
 │    auth    │   │   account    │  │ transaction │  │ notification │
 │  service   │   │   service    │  │   service   │  │   service    │
@@ -50,25 +39,22 @@ NovaPay là banking demo app với kiến trúc **microservices**, mỗi service
 │ • Blacklist│   │              │  │             │  │              │
 └──────┬─────┘   └──────┬───────┘  └──────┬──────┘  └──────┬───────┘
        │                │                 │                │
-       │    Internal calls (Kubernetes DNS /Docker network)│
-       │                │                 │                │
+       │         Internal calls (Kubernetes DNS)           │
        │    auth → account (tạo tài khoản khi register)    │
-       │                │                 │                │
        │                │  transaction → account (trừ/cộng)│
        │                │  transaction → notification (gửi)│
-       │                │                                  │
        └────────────────┴──────────────────────────────────┘
                         │
            ┌────────────┴────────────┐
            ▼                         ▼
 ┌──────────────────┐       ┌──────────────────┐
-│   PostgreSQL     │       │      Redis       │
+│  RDS PostgreSQL  │       │ElastiCache Redis │
 │   Port: 5432     │       │   Port: 6379     │
 │                  │       │                  │
 │ schema: auth     │       │ • Token blacklist│
 │ schema: account  │       │ • Balance cache  │
-│ schema: transac  |       │ • Rate limit     │
-│ schema: notifi   |       │ • Pub/Sub        │
+│ schema: transac  │       │ • Rate limit     │
+│ schema: notifi   │       │ • Pub/Sub        │
 │                  │       │ • Refresh token  │
 └──────────────────┘       └──────────────────┘
 ```
@@ -123,9 +109,9 @@ Key files:
 
 ```
 Routes:
-  GET  /api/notifications              → Lấy danh sách thông báo
-  PUT  /api/notifications/read-all     → Đánh dấu đã đọc
-  POST /api/notifications/internal/notify → Tạo + publish notification (internal)
+  GET  /api/notifications                     → Lấy danh sách thông báo
+  PUT  /api/notifications/read-all            → Đánh dấu đã đọc
+  POST /api/notifications/internal/notify     → Tạo + publish notification (internal)
 
 WebSocket:
   event: "join"         → Client gửi userId để join room
@@ -202,7 +188,7 @@ Key files:
     └── trả về { balance }
 ```
 
-### 4. Chuyển tiền (quan trọng nhất)
+### 4. Chuyển tiền
 
 ```
 [Browser] TransferModal submit
@@ -217,9 +203,9 @@ Key files:
     │   POST http://account-service:3002/api/account/internal/transfer
     │       ▼
     │   [account-service] accountService.transferFunds
-    │       ├── prisma.$transaction([          ← ATOMIC operation
-    │       │       UPDATE account SET balance = balance - amount WHERE userId = fromUserId
-    │       │       UPDATE account SET balance = balance + amount WHERE userId = toUserId
+    │       ├── prisma.$transaction([       ← ATOMIC operation
+    │       │       UPDATE balance - amount WHERE userId = fromUserId
+    │       │       UPDATE balance + amount WHERE userId = toUserId
     │       │   ])
     │       ├── redis.del("balance:{fromUserId}")  ← xóa cache cũ
     │       └── redis.del("balance:{toUserId}")
@@ -234,7 +220,7 @@ Key files:
             ▼
         [notification-service]
             ├── prisma.Notification.create({ userId: toUserId, message })
-            └── redis.publish("notifications:{toUserId}", JSON.stringify(data))
+            └── redis.publish("notifications:{toUserId}", data)
 ```
 
 ### 5. Logout
@@ -296,11 +282,10 @@ Key files:
 ```
 Database: novapay
 ├── schema: auth
-│   ├── User          (id, username, email, password, role)
-│   └── RefreshToken  (id, token, userId, expiresAt)
+│   └── User          (id, username, email, password, role)
 │
 ├── schema: account
-│   └── Account       (id, userId, balance)
+│   └── Account       (id, userId, balance, currency)
 │
 ├── schema: transaction
 │   └── Transaction   (id, fromUserId, toUserId, amount, status, createdAt)
@@ -317,93 +302,6 @@ refresh:{userId}         → Refresh token (TTL 7 ngày)
 balance:{userId}         → Cache số dư (TTL 30 giây)
 login-attempts:{ip}      → Rate limit đăng nhập (TTL 15 phút)
 notifications:{userId}   → Pub/Sub channel realtime
-```
-
----
-
-## DevOps Stack
-
-### Local Development
-
-```
-docker-compose.dev.yml
-    └── PostgreSQL:5432 + Redis:6379 + pgAdmin:5050
-
-Services chạy trực tiếp trên máy:
-    npm run dev (mỗi service 1 terminal)
-
-Vite proxy (vite.config.ts):
-    /api/auth/*  → localhost:3001
-    /api/account → localhost:3002
-    /socket.io   → localhost:3004
-```
-
-### Docker Production
-
-```
-docker-compose.prod.yml
-    ├── novapay-postgres   (PostgreSQL)
-    ├── novapay-redis      (Redis)
-    ├── novapay-auth       (auth-service built từ Dockerfile)
-    ├── novapay-account    (account-service)
-    ├── novapay-transaction(transaction-service)
-    ├── novapay-notification(notification-service)
-    ├── novapay-frontend   (React built → Nginx serve)
-    └── novapay-pgadmin    (pgAdmin UI)
-
-Entrypoint flow (mỗi service):
-    prisma migrate deploy → check seed → start server
-```
-
-### Kubernetes
-
-```
-minikube cluster
-    namespace: novapay
-    │
-    ├── Ingress (novapay.local:80)
-    ├── frontend Deployment + Service
-    ├── auth-service Deployment + Service
-    ├── account-service Deployment + Service
-    ├── transaction-service Deployment + Service
-    ├── notification-service Deployment + Service
-    ├── novapay-postgres StatefulSet + Service + PVC
-    └── novapay-redis StatefulSet + Service
-
-Helm Chart (helm/novapay/):
-    Chart.yaml      → dependencies: Bitnami PostgreSQL + Redis
-    values.yaml     → tất cả config tập trung
-    templates/      → K8s manifests với {{ .Values.xxx }}
-```
-
-### CI/CD Pipeline
-
-```
-GitHub Actions (.github/workflows/ci.yml)
-
-Push to main
-    │
-    ├── detect-changes   → dorny/paths-filter, output: changed services
-    ├── typecheck        → matrix per changed service, tsc check
-    ├── build            → docker build, save .tar artifact
-    ├── push             → load .tar, docker push → giathan/novapay-{service}:latest
-    ├── security-scan    → Trivy scan image
-    └── summary          → GitHub Step Summary table
-```
-
-### Monitoring
-
-```
-namespace: monitoring
-    ├── Prometheus        → scrape metrics từ K8s cluster
-    ├── Grafana           → dashboard (localhost:3000, admin/novapay123)
-    ├── AlertManager      → quản lý alerts
-    ├── kube-state-metrics→ metrics K8s objects
-    └── node-exporter     → metrics node (CPU, RAM, Disk)
-
-Dashboards:
-    Kubernetes / Compute Resources / Namespace (Workloads)
-    → CPU usage, Memory usage per service
 ```
 
 ---
