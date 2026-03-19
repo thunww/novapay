@@ -55,6 +55,8 @@ Traffic từ internet đi qua **ALB** (Application Load Balancer) — đây là 
 
 Để nodes trong private subnets có thể pull image từ ECR và giao tiếp với AWS APIs mà không cần ra internet, hệ thống sử dụng **VPC Endpoints** làm cầu nối nội bộ.
 
+> **Lưu ý:** Theo đúng nguyên tắc microservices, mỗi service nên có database riêng biệt (Database per Service pattern) để đảm bảo loose coupling và independent deployment. Tuy nhiên trong project này, tất cả services dùng chung một RDS instance, phân tách bằng PostgreSQL schemas (`auth`, `account`, `transaction`, `notification`) — để đơn giản hóa việc setup và tập trung vào thực hành EKS/DevOps hơn là database architecture.
+
 ![NovaPay AWS Architecture](./docs/images/architecture.png)
 
 ### 1.4 Services & Flow
